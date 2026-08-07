@@ -1,2 +1,27 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono&family=Manrope:wght@400;500;600;700;800&display=swap');
 *{box-sizing:border-box}body{margin:0;background:#081323;color:#eaf2ff;font-family:Manrope,system-ui}main{max-width:1320px;margin:auto;padding:54px 28px}header{display:flex;justify-content:space-between;align-items:center;gap:25px}h1{font-size:clamp(2.3rem,5vw,4.3rem);line-height:1.03;margin:8px 0}h2{margin:7px 0;font-size:1.25rem}p{color:#a9bad1;line-height:1.65}.eyebrow{font:12px 'DM Mono';letter-spacing:.12em;color:#65b8ff}button,.dropzone label{background:#65b8ff;color:#061426;border:0;border-radius:9px;padding:12px 19px;font:700 14px Manrope;cursor:pointer}.dropzone{margin:38px 0 22px;border:1px dashed #31517d;border-radius:13px;padding:30px;text-align:center;background:#0d1b30}.dropzone label{display:inline-flex;flex-direction:column;gap:4px}.dropzone input{display:none}.dropzone small{font-weight:400;color:#234566}.error{color:#ff9f9f}.overview{display:flex;justify-content:space-between;gap:30px;margin:24px 0;padding:23px;border:1px solid #1d3455;border-radius:12px;background:#0c1a2d}.overview h2{max-width:620px}.overview ul{margin:0;max-width:380px;color:#b9c8da;font-size:14px}.overview li+li{margin-top:9px}.workspace{display:grid;grid-template-columns:1fr 310px;min-height:540px;border:1px solid #1d3455;border-radius:12px;overflow:hidden}.graph{min-height:540px;background:#0a1728}.workspace aside{padding:24px;background:#0d1b30;border-left:1px solid #1d3455}article{margin-top:16px;padding:12px;background:#13233b;border-radius:8px;display:grid;gap:5px}article b{font-size:11px;text-transform:uppercase;color:#65b8ff}code{font:14px 'DM Mono'}article small{color:#9eb0c9;line-height:1.4}@media(max-width:800px){main{padding:32px 16px}header,.overview{display:block}header button{margin-top:18px}.overview ul{padding-left:20px;margin-top:17px}.workspace{grid-template-columns:1fr}.workspace aside{border-left:0;border-top:1px solid #1d3455}.graph{min-height:440px}}
+
+/* Toolbar & Filters */
+.toolbar{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px;margin-bottom:18px;padding:14px 18px;background:#0c1a2d;border:1px solid #1d3455;border-radius:10px}
+.search-box{display:flex;align-items:center;gap:8px;background:#13233b;border:1px solid #31517d;border-radius:8px;padding:6px 12px;min-width:260px}
+.search-box input{background:transparent;border:0;outline:none;color:#eaf2ff;font:14px Manrope;width:100%}
+.search-icon{font-size:14px}
+.filter-group{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.filter-label{font:12px 'DM Mono';color:#a9bad1}
+.chip{background:#13233b;color:#a9bad1;border:1px solid #31517d;border-radius:20px;padding:5px 12px;font:600 12px Manrope;cursor:pointer;transition:all 0.2s ease}
+.chip:hover{background:#1f3659;color:#eaf2ff}
+.chip.active{background:#65b8ff;color:#061426;border-color:#65b8ff}
+.action-group{display:flex;gap:8px}
+.action-btn{background:#182f4d;color:#65b8ff;border:1px solid #31517d;border-radius:8px;padding:6px 13px;font:600 12px Manrope;cursor:pointer;transition:all 0.2s ease}
+.action-btn:hover{background:#23446d;color:#ffffff}
+
+/* Node Cards */
+.node-card{display:flex;flex-direction:column;gap:6px}
+.node-header{display:flex;align-items:center;gap:6px}
+.node-icon{font-size:15px}
+.node-title{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
+.node-body{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:2px}
+.node-body small{font-size:11px;color:#a9bad1}
+.expand-btn{background:#274973;color:#65b8ff;border:1px solid #4a7bb0;border-radius:4px;padding:3px 8px;font:700 11px 'DM Mono';cursor:pointer;transition:background 0.2s ease}
+.expand-btn:hover{background:#366399;color:#ffffff}
+

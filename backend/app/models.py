@@ -1,3 +1,5 @@
+from __future__ import annotations
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
@@ -7,7 +9,7 @@ class SourceFile(BaseModel):
 
 
 class AnalyzeRequest(BaseModel):
-    files: list[SourceFile] = Field(min_length=1, max_length=400)
+    files: list[SourceFile] = Field(min_length=1, max_length=1000)
 
 
 class Symbol(BaseModel):
@@ -20,9 +22,13 @@ class Symbol(BaseModel):
 class Node(BaseModel):
     id: str
     label: str
+    kind: str = "file"  # "file" or "module"
+    parent: Optional[str] = None
     language: str
     summary: str
-    symbols: list[Symbol]
+    symbols: list[Symbol] = Field(default_factory=list)
+    file_count: int = 1
+    children_ids: list[str] = Field(default_factory=list)
 
 
 class Edge(BaseModel):
