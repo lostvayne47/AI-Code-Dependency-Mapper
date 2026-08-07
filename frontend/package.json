@@ -1,0 +1,9 @@
+{
+  "name": "dependency-mapper-ui",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": { "dev": "vite", "build": "tsc -b && vite build" },
+  "dependencies": { "@vitejs/plugin-react": "latest", "vite": "latest", "typescript": "~5.7.2", "react": "latest", "react-dom": "latest", "reactflow": "latest" },
+  "devDependencies": { "@types/node": "latest", "@types/react": "latest", "@types/react-dom": "latest" }
+}
