@@ -7,6 +7,7 @@ A local-first developer tool for rapidly understanding an unfamiliar codebase. I
 - Python AST analysis for imports, functions, async functions, and classes
 - JavaScript/TypeScript/React import and top-level declaration extraction
 - Interactive dependency graph with file-level symbol inspection
+- Automatic ignoring of system and vendor paths (`node_modules`, `.venv`, `dist`, build artifacts, `.gitignore` rules)
 - No source is uploaded to a third party by the UI; it is sent only to the local FastAPI service
 
 ## Run it

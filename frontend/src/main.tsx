@@ -8,7 +8,7 @@ type SymbolInfo = { name: string; kind: string; line: number; summary: string }
 type AnalysisNode = {
   id: string
   label: string
-  kind: 'file' | 'module'
+  kind: 'file' | 'module' | 'external'
   parent: string | null
   language: string
   summary: string
@@ -16,11 +16,19 @@ type AnalysisNode = {
   file_count: number
   children_ids: string[]
 }
+type AnalyzeStats = {
+  file_count: number
+  module_count: number
+  external_count: number
+  symbol_count: number
+  edge_count: number
+}
 type Result = {
   nodes: AnalysisNode[]
   edges: { source: string; target: string; kind: string }[]
   overview: string
   insights: string[]
+  stats: AnalyzeStats
 }
 
 const IGNORE_PATTERNS = [
@@ -34,9 +42,9 @@ function isIgnoredPath(path: string): boolean {
 }
 
 const demoFiles = [
-  { path: 'src/main.py', content: 'from services.report import build_report\n\ndef run():\n    return build_report()\n' },
-  { path: 'src/services/report.py', content: 'from models.user import User\n\ndef build_report():\n    return User()\n' },
-  { path: 'src/models/user.py', content: 'class User:\n    def __init__(self):\n        self.name = "Visitor"\n' },
+  { path: 'src/main.py', content: 'import fastapi\nfrom services.report import build_report\n\ndef run():\n    return build_report()\n' },
+  { path: 'src/services/report.py', content: 'import react\nfrom models.user import User\n\ndef build_report():\n    return User()\n' },
+  { path: 'src/models/user.py', content: 'import pydantic\n\nclass User:\n    def __init__(self):\n        self.name = "Visitor"\n' },
 ]
 
 function App() {
@@ -49,6 +57,8 @@ function App() {
   const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedLanguage, setSelectedLanguage] = useState<string>('All')
+  const [excludeExternal, setExcludeExternal] = useState<boolean>(true)
+  const [showOverview, setShowOverview] = useState<boolean>(false)
 
   const analyze = useCallback(async (files: { path: string; content: string }[]) => {
     setLoading(true); setError(''); setSelected(null)
@@ -76,11 +86,12 @@ function App() {
     const rawFiles = Array.from(event.target.files || [])
     const filteredFiles = rawFiles.filter(f => {
       const path = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
-      return /\.(py|js|jsx|ts|tsx|json)$/i.test(f.name) && !isIgnoredPath(path)
+      const isGitIgnore = f.name.toLowerCase() === '.gitignore'
+      return (/\.(py|js|jsx|ts|tsx|json)$/i.test(f.name) || isGitIgnore) && !isIgnoredPath(path)
     })
 
     if (!filteredFiles.length) {
-      setError('No valid source files found. Non-code and vendor directories (node_modules, .venv, dist) are automatically ignored.')
+      setError('No valid source files found in the selected folder.')
       return
     }
 
@@ -134,10 +145,11 @@ function App() {
     return true
   }, [expandedModules, nodeMap])
 
-  // Determine available languages for filtering
+  // Determine available languages for filtering (source files only)
   const availableLanguages = useMemo(() => {
     if (!result) return ['All']
-    const set = new Set(result.nodes.map(n => n.language))
+    const fileLangs = result.nodes.filter(n => n.kind === 'file').map(n => n.language)
+    const set = new Set(fileLangs)
     return ['All', ...Array.from(set)]
   }, [result])
 
@@ -147,33 +159,66 @@ function App() {
 
     const visibleNodes = result.nodes.filter(node => {
       if (!isNodeVisible(node)) return false
-      if (selectedLanguage !== 'All' && node.language !== selectedLanguage) return false
+
+      // Checkbox filter to exclude external packages
+      if (excludeExternal && node.kind === 'external') return false
+
+      // Language Filter
+      if (selectedLanguage !== 'All') {
+        if (node.kind === 'file') {
+          if (node.language !== selectedLanguage) return false
+        } else if (node.kind === 'module') {
+          const hasMatchingChild = result.nodes.some(
+            n => n.kind === 'file' && n.language === selectedLanguage && n.id.startsWith(node.id + '/')
+          )
+          if (!hasMatchingChild) return false
+        }
+      }
+
+      // Search Query Filter
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase()
-        return node.label.toLowerCase().includes(query) || node.id.toLowerCase().includes(query)
+        const matches = node.label.toLowerCase().includes(query) || node.id.toLowerCase().includes(query)
+        if (node.kind === 'module') {
+          const hasMatchingChild = result.nodes.some(
+            n => (n.label.toLowerCase().includes(query) || n.id.toLowerCase().includes(query)) && n.id.startsWith(node.id + '/')
+          )
+          if (!matches && !hasMatchingChild) return false
+        } else if (!matches) {
+          return false
+        }
       }
+
       return true
     })
 
     return visibleNodes.map((node, i) => {
       const isExpanded = expandedModules.has(node.id)
       const isModule = node.kind === 'module'
+      const isExternal = node.kind === 'external'
+
+      const icon = isExternal ? '📦' : isModule ? '📁' : '📄'
+      const cardClass = isExternal ? 'node-external' : isModule ? 'node-module' : 'node-file'
+      const subText = isExternal ? 'External Package' : isModule ? `${node.file_count} files` : `${node.symbols.length} symbols`
 
       return {
         id: node.id,
         data: {
           label: (
-            <div className={`node-card ${isModule ? 'node-module' : 'node-file'}`}>
+            <div className={`node-card ${cardClass}`}>
               <div className="node-header">
-                <span className="node-icon">{isModule ? '📁' : '📄'}</span>
+                <span className="node-icon">{icon}</span>
                 <strong className="node-title">{node.label}</strong>
               </div>
               <div className="node-body">
-                <small>{node.language} · {isModule ? `${node.file_count} files` : `${node.symbols.length} symbols`}</small>
+                <small>{node.language} · {subText}</small>
                 {isModule && (
                   <button className="expand-btn" onClick={(e) => toggleModule(node.id, e)}>
                     {isExpanded ? '[-] Collapse' : '[+] Expand'}
                   </button>
+                )}
+                {isExternal && (
+                  <span className="node-external-badge">Pkg</span>
                 )}
               </div>
             </div>
@@ -181,16 +226,16 @@ function App() {
         },
         position: { x: 80 + (i % 3) * 290, y: 80 + Math.floor(i / 3) * 180 },
         style: {
-          border: isModule ? '1px solid #4a7bb0' : '1px solid #31517d',
+          border: isExternal ? '1px solid #9b51e0' : isModule ? '1px solid #4a7bb0' : '1px solid #31517d',
           borderRadius: 10,
-          background: isModule ? '#182f4d' : '#13233b',
+          background: isExternal ? 'linear-gradient(135deg, #2b1d40 0%, #17152b 100%)' : isModule ? '#182f4d' : '#13233b',
           color: '#eaf2ff',
           padding: 10,
           minWidth: 210
         }
       }
     })
-  }, [result, isNodeVisible, selectedLanguage, searchQuery, expandedModules, toggleModule])
+  }, [result, isNodeVisible, selectedLanguage, searchQuery, excludeExternal, expandedModules, toggleModule])
 
   // Compute visible ancestor for edge resolution when nodes are collapsed
   const getVisibleAncestorId = useCallback((nodeId: string, visibleSet: Set<string>): string => {
@@ -219,12 +264,13 @@ function App() {
         const edgeKey = `${srcVisible}->${tgtVisible}`
         if (!edgeSet.has(edgeKey)) {
           edgeSet.add(edgeKey)
+          const isExternalEdge = edge.kind === 'external_import' || tgtVisible.startsWith('pkg:')
           edgesList.push({
             id: `edge-${edgeKey}-${i}`,
             source: srcVisible,
             target: tgtVisible,
             animated: true,
-            style: { stroke: '#65b8ff', strokeWidth: 1.8 }
+            style: { stroke: isExternalEdge ? '#b388ff' : '#65b8ff', strokeWidth: isExternalEdge ? 1.5 : 1.8, strokeDasharray: isExternalEdge ? '4 3' : undefined }
           })
         }
       }
@@ -232,6 +278,14 @@ function App() {
 
     return edgesList
   }, [result, flowNodes, getVisibleAncestorId])
+
+  const closeProject = useCallback(() => {
+    setResult(null)
+    setSelected(null)
+    setSearchQuery('')
+    setSelectedLanguage('All')
+    setError('')
+  }, [])
 
   return (
     <main>
@@ -241,30 +295,106 @@ function App() {
           <h1>Architecture at a glance.</h1>
           <p>Map dependencies and turn unfamiliar source into an expandable, hierarchical system.</p>
         </div>
-        <button onClick={() => analyze(demoFiles)} disabled={loading}>
-          {loading ? 'Analyzing…' : 'Try demo'}
-        </button>
+        {result ? (
+          <button className="close-project-btn" onClick={closeProject}>
+            ✕ Close Project
+          </button>
+        ) : (
+          <button onClick={() => analyze(demoFiles)} disabled={loading}>
+            {loading ? 'Analyzing…' : 'Try demo'}
+          </button>
+        )}
       </header>
 
-      <section className="dropzone">
-        <label>
-          <input type="file" ref={input => input?.setAttribute('webkitdirectory', '')} multiple onChange={onPick} />
-          <span>Choose a project folder</span>
-          <small>System/vendor paths (node_modules, .venv, dist) are automatically ignored.</small>
-        </label>
-        {error && <p className="error">{error}</p>}
-      </section>
+      {!result && (
+        <section className="dropzone-hero">
+          <div className="dropzone-hero-content">
+            <div className="dropzone-icon">📁</div>
+            <h2>Select a Codebase to Analyze</h2>
+            <p>Choose any local project folder to extract top-level functions, classes, modules, and dependencies.</p>
+
+            <label className="hero-upload-btn">
+              <input type="file" ref={input => input?.setAttribute('webkitdirectory', '')} multiple onChange={onPick} />
+              <span>Choose a project folder</span>
+            </label>
+
+            <div className="hero-or-divider">
+              <span>OR</span>
+            </div>
+
+            <button className="hero-demo-btn" onClick={() => analyze(demoFiles)} disabled={loading}>
+              {loading ? 'Analyzing Demo…' : '⚡ Try Live Demo'}
+            </button>
+
+            {error && <p className="error">{error}</p>}
+          </div>
+        </section>
+      )}
 
       {result && (
         <>
-          <section className="overview">
-            <div>
-              <span className="eyebrow">PROJECT OVERVIEW</span>
-              <h2>{result.overview}</h2>
-            </div>
-            <ul>
-              {result.insights.map(item => <li key={item}>{item}</li>)}
-            </ul>
+          <section className="overview-accordion">
+            <button className="overview-toggle-btn" onClick={() => setShowOverview(prev => !prev)}>
+              <div className="overview-toggle-left">
+                <span className="toggle-icon">{showOverview ? '▼' : '►'}</span>
+                <strong>📊 Codebase Summary & Architectural Insights</strong>
+              </div>
+              {result.stats && (
+                <div className="overview-toggle-right">
+                  <span className="toggle-chip">{result.stats.file_count} Files</span>
+                  <span className="toggle-chip">{result.stats.module_count} Modules</span>
+                  <span className="toggle-chip">{result.stats.edge_count} Links</span>
+                  <span className="toggle-chip">{result.stats.external_count} Packages</span>
+                  <span className="toggle-action">{showOverview ? 'Hide Details' : 'Show Details'}</span>
+                </div>
+              )}
+            </button>
+
+            {showOverview && (
+              <div className="overview-content">
+                <div className="overview-header">
+                  <span className="eyebrow">PROJECT OVERVIEW</span>
+                  <h2>{result.overview}</h2>
+                </div>
+
+                {result.stats && (
+                  <div className="stats-grid">
+                    <div className="stat-card">
+                      <span className="stat-value">{result.stats.file_count}</span>
+                      <span className="stat-label">Source Files</span>
+                    </div>
+                    <div className="stat-card">
+                      <span className="stat-value">{result.stats.module_count}</span>
+                      <span className="stat-label">Modules</span>
+                    </div>
+                    <div className="stat-card">
+                      <span className="stat-value">{result.stats.symbol_count}</span>
+                      <span className="stat-label">Symbols</span>
+                    </div>
+                    <div className="stat-card">
+                      <span className="stat-value">{result.stats.edge_count}</span>
+                      <span className="stat-label">Dependencies</span>
+                    </div>
+                    <div className="stat-card">
+                      <span className="stat-value">{result.stats.external_count}</span>
+                      <span className="stat-label">Packages</span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="insights-panel">
+                  <span className="eyebrow">ARCHITECTURAL INSIGHTS</span>
+                  <ul className="insights-list">
+                    {result.insights.map((item, idx) => (
+                      <li key={idx}>
+                        <span className="insight-bullet">✦</span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="toolbar">
@@ -291,11 +421,23 @@ function App() {
               ))}
             </div>
 
+            <div className="filter-group">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={excludeExternal}
+                  onChange={e => setExcludeExternal(e.target.checked)}
+                />
+                <span>Exclude External Packages</span>
+              </label>
+            </div>
+
             <div className="action-group">
               <button className="action-btn" onClick={expandAll}>Expand All</button>
               <button className="action-btn" onClick={collapseAll}>Collapse All</button>
             </div>
           </section>
+
 
           <section className="workspace">
             <div className="graph">

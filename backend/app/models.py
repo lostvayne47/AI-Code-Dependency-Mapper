@@ -22,7 +22,7 @@ class Symbol(BaseModel):
 class Node(BaseModel):
     id: str
     label: str
-    kind: str = "file"  # "file" or "module"
+    kind: str = "file"  # "file", "module", or "external"
     parent: Optional[str] = None
     language: str
     summary: str
@@ -37,11 +37,21 @@ class Edge(BaseModel):
     kind: str = "imports"
 
 
+class AnalyzeStats(BaseModel):
+    file_count: int
+    module_count: int
+    external_count: int
+    symbol_count: int
+    edge_count: int
+
+
 class AnalyzeResponse(BaseModel):
     nodes: list[Node]
     edges: list[Edge]
     overview: str
     insights: list[str]
+    stats: AnalyzeStats
+
 
 class RepositoryRequest(BaseModel):
     url: str = Field(min_length=8, max_length=2_000)

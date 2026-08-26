@@ -11,7 +11,7 @@ import re
 from collections import Counter
 from pathlib import PurePosixPath
 
-from .models import Edge, Node, SourceFile, Symbol
+from .models import AnalyzeStats, Edge, Node, SourceFile, Symbol
 
 LANGUAGES = {".py": "Python", ".js": "JavaScript", ".jsx": "React", ".ts": "TypeScript", ".tsx": "React/TypeScript", ".json": "JSON"}
 IGNORE_DIRS = {
@@ -26,9 +26,65 @@ def _path(path: str) -> str:
     return str(PurePosixPath(path.replace("\\", "/"))).lstrip("/")
 
 
-def _is_ignored(path: str) -> bool:
-    parts = set(PurePosixPath(path).parts)
-    return bool(parts.intersection(IGNORE_DIRS))
+def _compile_gitignore_rule(rule: str) -> re.Pattern | None:
+    rule = rule.strip()
+    if not rule or rule.startswith("#"):
+        return None
+    if rule.endswith("/"):
+        rule = rule[:-1]
+    
+    parts = []
+    i = 0
+    while i < len(rule):
+        c = rule[i]
+        if c == "*":
+            if i + 1 < len(rule) and rule[i + 1] == "*":
+                parts.append(".*")
+                i += 2
+                continue
+            else:
+                parts.append("[^/]*")
+        elif c == "?":
+            parts.append("[^/]")
+        else:
+            parts.append(re.escape(c))
+        i += 1
+    
+    pattern_str = "".join(parts)
+    if "/" in rule:
+        pattern = f"^{pattern_str}(/.*)?$"
+    else:
+        pattern = f"(^|/){pattern_str}(/.*)?$"
+    try:
+        return re.compile(pattern, re.IGNORECASE)
+    except re.error:
+        return None
+
+
+def _parse_gitignore_rules(files: list[SourceFile]) -> list[re.Pattern]:
+    patterns: list[re.Pattern] = []
+    for file in files:
+        if PurePosixPath(_path(file.path)).name == ".gitignore":
+            for line in file.content.splitlines():
+                compiled = _compile_gitignore_rule(line)
+                if compiled:
+                    patterns.append(compiled)
+    return patterns
+
+
+def _is_ignored(path: str, gitignore_patterns: list[re.Pattern] | None = None) -> bool:
+    clean = _path(path)
+    name = PurePosixPath(clean).name
+    if name.startswith("."):
+        return True
+    parts = set(PurePosixPath(clean).parts)
+    if bool(parts.intersection(IGNORE_DIRS)):
+        return True
+    if gitignore_patterns:
+        for pattern in gitignore_patterns:
+            if pattern.search(clean):
+                return True
+    return False
 
 
 def _language(path: str) -> str:
@@ -100,11 +156,26 @@ def _resolve_import(source: str, imported: str, known: set[str]) -> str | None:
     return None
 
 
-def analyze(files: list[SourceFile]) -> tuple[list[Node], list[Edge], str, list[str]]:
-    normalized = [SourceFile(path=_path(f.path), content=f.content) for f in files if f.path and not _is_ignored(_path(f.path))]
+def _extract_package_name(imported: str) -> str | None:
+    imported = imported.strip().replace("\\", "/")
+    if not imported or imported.startswith("."):
+        return None
+    if imported.startswith("@"):
+        parts = imported.split("/")
+        if len(parts) >= 2:
+            return f"{parts[0]}/{parts[1]}"
+        return imported
+    first_part = imported.split("/")[0].split(".")[0]
+    return first_part if first_part else None
+
+
+def analyze(files: list[SourceFile]) -> tuple[list[Node], list[Edge], str, list[str], AnalyzeStats]:
+    gitignore_rules = _parse_gitignore_rules(files)
+    normalized = [SourceFile(path=_path(f.path), content=f.content) for f in files if f.path and not _is_ignored(f.path, gitignore_rules)]
     known = {f.path for f in normalized}
     
     file_nodes: dict[str, Node] = {}
+    external_nodes: dict[str, Node] = {}
     edges: list[Edge] = []
     seen_edges: set[tuple[str, str]] = set()
     type_counts: Counter[str] = Counter()
@@ -170,7 +241,26 @@ def analyze(files: list[SourceFile]) -> tuple[list[Node], list[Edge], str, list[
             target = _resolve_import(file.path, imported, known)
             if target and target != file.path and (file.path, target) not in seen_edges:
                 seen_edges.add((file.path, target))
-                edges.append(Edge(source=file.path, target=target))
+                edges.append(Edge(source=file.path, target=target, kind="imports"))
+            elif not target and not imported.startswith("."):
+                pkg = _extract_package_name(imported)
+                if pkg:
+                    pkg_id = f"pkg:{pkg}"
+                    if pkg_id not in external_nodes:
+                        external_nodes[pkg_id] = Node(
+                            id=pkg_id,
+                            label=pkg,
+                            kind="external",
+                            parent=None,
+                            language="External Package",
+                            summary=f"External package dependency `{pkg}`.",
+                            symbols=[],
+                            file_count=0,
+                            children_ids=[]
+                        )
+                    if (file.path, pkg_id) not in seen_edges:
+                        seen_edges.add((file.path, pkg_id))
+                        edges.append(Edge(source=file.path, target=pkg_id, kind="external_import"))
 
     # Construct Module Nodes
     module_nodes: list[Node] = []
@@ -192,11 +282,61 @@ def analyze(files: list[SourceFile]) -> tuple[list[Node], list[Edge], str, list[
             children_ids=sorted(list(child_ids))
         ))
 
-    all_nodes = module_nodes + list(file_nodes.values())
-    root_count = len({edge.source for edge in edges})
-    overview = f"This codebase has {len(file_nodes)} files, {len(module_nodes)} modules, {total_symbols} discovered symbols, and {len(edges)} internal dependency links."
-    languages = ", ".join(f"{count} {name}" for name, count in type_counts.most_common()) or "no recognized source files"
-    insights = [f"Detected: {languages}.", f"{root_count} files import another file in this selection."]
-    if not edges:
-        insights.append("No resolvable internal imports were found; external packages are intentionally omitted from the graph.")
-    return all_nodes, edges, overview, insights
+    all_nodes = module_nodes + list(file_nodes.values()) + list(external_nodes.values())
+    
+    total_files = len(file_nodes)
+    total_modules = len(module_nodes)
+    total_externals = len(external_nodes)
+    total_edges = len(edges)
+
+    stats = AnalyzeStats(
+        file_count=total_files,
+        module_count=total_modules,
+        external_count=total_externals,
+        symbol_count=total_symbols,
+        edge_count=total_edges
+    )
+
+    # Rich Overview Narrative
+    if total_files == 0:
+        overview = "No valid source files found in the selected folder."
+    else:
+        overview = f"Codebase Architecture: {total_files} source file{'s' if total_files != 1 else ''} across {total_modules} module directory{'ies' if total_modules != 1 else ''} with {total_externals} external package dependenc{'ies' if total_externals != 1 else 'y'}."
+
+    # Detailed Architectural Insights
+    insights: list[str] = []
+
+    # 1. Languages breakdown
+    if total_files > 0:
+        lang_parts = [f"{count} {lang} file{'s' if count != 1 else ''} ({round(count/total_files*100)}%)" for lang, count in type_counts.most_common()]
+        insights.append(f"Language Breakdown: {', '.join(lang_parts)}.")
+
+    # 2. External Packages
+    if external_nodes:
+        pkg_names = [node.label for node in external_nodes.values()]
+        insights.append(f"External Packages Detected: {', '.join(sorted(pkg_names))}.")
+    else:
+        insights.append("External Packages: No third-party package imports detected.")
+
+    # 3. File connectivity & entrypoints
+    outgoing_counts: Counter[str] = Counter(edge.source for edge in edges)
+    incoming_counts: Counter[str] = Counter(edge.target for edge in edges if not edge.target.startswith("pkg:"))
+
+    if outgoing_counts:
+        top_caller, top_outgoing = outgoing_counts.most_common(1)[0]
+        caller_name = PurePosixPath(top_caller).name
+        insights.append(f"Primary Dependency Hub: `{caller_name}` ({top_outgoing} outgoing link{'s' if top_outgoing != 1 else ''}).")
+    elif total_files > 0:
+        insights.append("Dependency Coupling: No cross-file or external import links were found.")
+
+    # 4. Module directory structure
+    if module_nodes:
+        top_modules = sorted([m.id for m in module_nodes if not m.parent])
+        insights.append(f"Root Modules: {', '.join(f'`{m}/`' for m in top_modules)}.")
+
+    # 5. Symbol extraction summary
+    insights.append(f"Symbol Index: Discovered {total_symbols} top-level function & class declaration{'s' if total_symbols != 1 else ''}.")
+
+    return all_nodes, edges, overview, insights, stats
+
+

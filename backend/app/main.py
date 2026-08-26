@@ -29,5 +29,5 @@ def repository_checkout(request: CheckoutRequest):
 def analyze_codebase(request: AnalyzeRequest):
     if sum(len(item.content) for item in request.files) > 5_000_000:
         raise HTTPException(status_code=413, detail="Source selection exceeds the 5 MB analysis limit.")
-    nodes, edges, overview, insights = analyze(request.files)
-    return AnalyzeResponse(nodes=nodes, edges=edges, overview=overview, insights=insights)
+    nodes, edges, overview, insights, stats = analyze(request.files)
+    return AnalyzeResponse(nodes=nodes, edges=edges, overview=overview, insights=insights, stats=stats)
