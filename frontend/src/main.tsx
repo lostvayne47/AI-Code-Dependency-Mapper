@@ -14,8 +14,18 @@ type AnalysisNode = {
   summary: string
   symbols: SymbolInfo[]
   file_count: number
+  size_bytes?: number
   children_ids: string[]
 }
+
+function formatBytes(bytes: number = 0): string {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+}
+
 type AnalyzeStats = {
   file_count: number
   module_count: number
@@ -59,6 +69,7 @@ function App() {
   const [selectedLanguage, setSelectedLanguage] = useState<string>('All')
   const [excludeExternal, setExcludeExternal] = useState<boolean>(true)
   const [showOverview, setShowOverview] = useState<boolean>(false)
+  const [showLegend, setShowLegend] = useState<boolean>(true)
 
   const analyze = useCallback(async (files: { path: string; content: string }[]) => {
     setLoading(true); setError(''); setSelected(null)
@@ -199,7 +210,8 @@ function App() {
 
       const icon = isExternal ? '📦' : isModule ? '📁' : '📄'
       const cardClass = isExternal ? 'node-external' : isModule ? 'node-module' : 'node-file'
-      const subText = isExternal ? 'External Package' : isModule ? `${node.file_count} files` : `${node.symbols.length} symbols`
+      const formattedSize = node.size_bytes ? formatBytes(node.size_bytes) : ''
+      const subText = isExternal ? 'External Package' : isModule ? `${node.file_count} files (${formattedSize})` : `${node.symbols.length} symbols · ${formattedSize}`
 
       return {
         id: node.id,
@@ -451,10 +463,74 @@ function App() {
                 <MiniMap />
                 <Controls />
               </ReactFlow>
+
+              <div className="legend-overlay">
+                <button className="legend-toggle-btn" onClick={() => setShowLegend(prev => !prev)}>
+                  <span>🗺️ Graph Legend</span>
+                  <span className="legend-arrow">{showLegend ? '▼' : '▲'}</span>
+                </button>
+                {showLegend && (
+                  <div className="legend-body">
+                    <div className="legend-section">
+                      <span className="legend-title">NODE TYPES & SIZES</span>
+                      <div className="legend-item">
+                        <span className="legend-icon">📄</span>
+                        <div className="legend-text">
+                          <strong>Source File</strong>
+                          <small>Shows symbols & file size (KB)</small>
+                        </div>
+                      </div>
+                      <div className="legend-item">
+                        <span className="legend-icon">📁</span>
+                        <div className="legend-text">
+                          <strong>Module Folder</strong>
+                          <small>Contained files & total size</small>
+                        </div>
+                      </div>
+                      <div className="legend-item">
+                        <span className="legend-icon">📦</span>
+                        <div className="legend-text">
+                          <strong>External Package</strong>
+                          <small>npm / PyPI package import</small>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="legend-section">
+                      <span className="legend-title">DEPENDENCY LINKS</span>
+                      <div className="legend-item">
+                        <span className="edge-sample solid-edge"></span>
+                        <small>Internal File Import</small>
+                      </div>
+                      <div className="legend-item">
+                        <span className="edge-sample dashed-edge"></span>
+                        <small>External Package Dependency</small>
+                      </div>
+                    </div>
+
+                    <div className="legend-section">
+                      <span className="legend-title">LANGUAGES IN GRAPH</span>
+                      <div className="legend-tags">
+                        {availableLanguages.filter(l => l !== 'All').map(lang => (
+                          <span key={lang} className="legend-tag">{lang}</span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
             <aside>
               <span className="eyebrow">{selected ? selected.language : 'INSPECTOR'}</span>
               <h2>{selected?.label || 'Select a file or module'}</h2>
+              {selected && (
+                <div className="inspector-meta">
+                  <span className="inspector-chip">{selected.kind.toUpperCase()}</span>
+                  {selected.size_bytes !== undefined && selected.size_bytes > 0 && (
+                    <span className="inspector-chip">SIZE: {formatBytes(selected.size_bytes)}</span>
+                  )}
+                </div>
+              )}
               <p>{selected?.summary || 'Click any module or file in the graph to inspect its structure and top-level symbols.'}</p>
               {selected?.symbols.map(symbol => (
                 <article key={`${symbol.name}-${symbol.line}`}>
@@ -465,6 +541,7 @@ function App() {
               ))}
             </aside>
           </section>
+
         </>
       )}
     </main>

@@ -185,6 +185,7 @@ def analyze(files: list[SourceFile]) -> tuple[list[Node], list[Edge], str, list[
     module_children: dict[str, set[str]] = {}
     module_files: dict[str, set[str]] = {}
     module_symbol_count: Counter[str] = Counter()
+    module_size_bytes: Counter[str] = Counter()
 
     for file in normalized:
         language = _language(file.path)
@@ -199,6 +200,7 @@ def analyze(files: list[SourceFile]) -> tuple[list[Node], list[Edge], str, list[
 
         total_symbols += len(symbols)
         type_counts[language] += 1
+        file_bytes = len(file.content.encode("utf-8"))
         
         parent_dir = PurePosixPath(file.path).parent.as_posix()
         parent_id = None if parent_dir == "." else parent_dir
@@ -213,6 +215,7 @@ def analyze(files: list[SourceFile]) -> tuple[list[Node], list[Edge], str, list[
             summary=purpose,
             symbols=symbols,
             file_count=1,
+            size_bytes=file_bytes,
             children_ids=[]
         )
 
@@ -224,6 +227,7 @@ def analyze(files: list[SourceFile]) -> tuple[list[Node], list[Edge], str, list[
                 module_files[curr] = set()
             module_files[curr].add(file.path)
             module_symbol_count[curr] += len(symbols)
+            module_size_bytes[curr] += file_bytes
             
             p = PurePosixPath(curr).parent.as_posix()
             parent_mod = None if p == "." else p
@@ -256,6 +260,7 @@ def analyze(files: list[SourceFile]) -> tuple[list[Node], list[Edge], str, list[
                             summary=f"External package dependency `{pkg}`.",
                             symbols=[],
                             file_count=0,
+                            size_bytes=0,
                             children_ids=[]
                         )
                     if (file.path, pkg_id) not in seen_edges:
@@ -269,6 +274,7 @@ def analyze(files: list[SourceFile]) -> tuple[list[Node], list[Edge], str, list[
         mod_parent = None if parent_p == "." else parent_p
         f_count = len(module_files.get(mod_path, set()))
         s_count = module_symbol_count.get(mod_path, 0)
+        m_bytes = module_size_bytes.get(mod_path, 0)
         summary = f"Module directory containing {f_count} file{'s' if f_count != 1 else ''} and {s_count} symbol{'s' if s_count != 1 else ''}."
         module_nodes.append(Node(
             id=mod_path,
@@ -279,8 +285,10 @@ def analyze(files: list[SourceFile]) -> tuple[list[Node], list[Edge], str, list[
             summary=summary,
             symbols=[],
             file_count=f_count,
+            size_bytes=m_bytes,
             children_ids=sorted(list(child_ids))
         ))
+
 
     all_nodes = module_nodes + list(file_nodes.values()) + list(external_nodes.values())
     

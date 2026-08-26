@@ -28,6 +28,7 @@ class Node(BaseModel):
     summary: str
     symbols: list[Symbol] = Field(default_factory=list)
     file_count: int = 1
+    size_bytes: int = 0
     children_ids: list[str] = Field(default_factory=list)
 
 
